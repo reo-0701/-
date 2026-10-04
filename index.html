@@ -15,6 +15,9 @@
         rel="stylesheet"
         href="style.css">
 
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 </head>
 
 
@@ -194,8 +197,9 @@
                         カロリー
                     </label>
 
-                    <select id="calorieFilter"
-                            onchange="applyFilters()">
+                    <select
+                        id="calorieFilter"
+                        onchange="applyFilters()">
 
                         <option value="all">
                             指定なし
@@ -225,8 +229,9 @@
                         タンパク質
                     </label>
 
-                    <select id="proteinFilter"
-                            onchange="applyFilters()">
+                    <select
+                        id="proteinFilter"
+                        onchange="applyFilters()">
 
                         <option value="all">
                             指定なし
@@ -256,8 +261,9 @@
                         脂質
                     </label>
 
-                    <select id="fatFilter"
-                            onchange="applyFilters()">
+                    <select
+                        id="fatFilter"
+                        onchange="applyFilters()">
 
                         <option value="all">
                             指定なし
@@ -287,8 +293,9 @@
                         価格
                     </label>
 
-                    <select id="priceFilter"
-                            onchange="applyFilters()">
+                    <select
+                        id="priceFilter"
+                        onchange="applyFilters()">
 
                         <option value="all">
                             指定なし
@@ -328,27 +335,18 @@
 
             <div class="food-controls">
 
-                <button
-                    onclick="displayFoods()">
-
+                <button onclick="displayFoods()">
                     すべて
-
                 </button>
 
 
-                <button
-                    onclick="showFavorites()">
-
+                <button onclick="showFavorites()">
                     ⭐ お気に入り
-
                 </button>
 
 
-                <button
-                    onclick="showRanking()">
-
+                <button onclick="showRanking()">
                     🏆 人気ランキング
-
                 </button>
 
 
@@ -607,11 +605,8 @@
 
 
 
-            <button
-                onclick="addFood()">
-
+            <button onclick="addFood()">
                 ＋ この料理を投稿する
-
             </button>
 
         </section>
@@ -630,7 +625,6 @@
     id="detail-overlay"
     class="detail-overlay"
     onclick="closeFoodDetail()">
-
 </div>
 
 
@@ -638,15 +632,11 @@
     id="food-detail"
     class="food-detail">
 
-
     <button
         class="close-detail"
         onclick="closeFoodDetail()">
-
         ✕
-
     </button>
-
 
     <div id="detail-content"></div>
 
@@ -662,7 +652,6 @@
     id="author-overlay"
     class="detail-overlay"
     onclick="closeAuthorPage()">
-
 </div>
 
 
@@ -670,15 +659,11 @@
     id="author-page"
     class="author-page">
 
-
     <button
         class="close-detail"
         onclick="closeAuthorPage()">
-
         ✕
-
     </button>
-
 
     <div id="author-content"></div>
 
@@ -689,62 +674,278 @@
 <script>
 
 
-// ========================================
-// データ読み込み
-// ========================================
+// =====================================================
+// Supabase設定
+// =====================================================
 
-let foods =
+const SUPABASE_URL =
+    "https://ohayijowyvphrgvwsywj.supabase.co";
+
+const SUPABASE_KEY =
+    "sb_publishable_xrF9LWNH2UoNlB0WNUJcgA_lmLaMp0_";
+
+const supabaseClient =
+    window.supabase.createClient(
+        SUPABASE_URL,
+        SUPABASE_KEY
+    );
+
+
+// =====================================================
+// このブラウザを識別するID
+// =====================================================
+
+let visitorId =
+    localStorage.getItem("diet_food_visitor_id");
+
+
+if (!visitorId) {
+
+    visitorId =
+        crypto.randomUUID();
+
+    localStorage.setItem(
+        "diet_food_visitor_id",
+        visitorId
+    );
+
+}
+
+
+// =====================================================
+// ローカルお気に入り
+// =====================================================
+
+let favoriteIds =
     JSON.parse(
-        localStorage.getItem("foods")
-    ) || [];
+        localStorage.getItem(
+            "diet_food_favorites"
+        ) || "[]"
+    );
 
 
-// 現在のカテゴリー
+// =====================================================
+// 削除トークン
+// =====================================================
+
+let deleteTokens =
+    JSON.parse(
+        localStorage.getItem(
+            "diet_food_delete_tokens"
+        ) || "{}"
+    );
+
+
+// =====================================================
+// データ
+// =====================================================
+
+let foods = [];
 
 let currentCategory = "all";
 
-
-// ========================================
-// 古いデータを新仕様に対応
-// ========================================
-
-foods = foods.map(function(food) {
-
-    return {
-
-        ...food,
-
-        category:
-            food.category || "その他",
-
-        ingredients:
-            food.ingredients || "",
-
-        likes:
-            food.likes || 0,
-
-        liked:
-            food.liked || false
-
-    };
-
-});
+let currentView = "all";
 
 
-localStorage.setItem(
-    "foods",
-    JSON.stringify(foods)
-);
+// =====================================================
+// HTML安全化
+// =====================================================
+
+function escapeHTML(text) {
+
+    if (text === null || text === undefined) {
+
+        return "";
+
+    }
+
+    return String(text)
+
+        .replace(/&/g, "&amp;")
+
+        .replace(/</g, "&lt;")
+
+        .replace(/>/g, "&gt;")
+
+        .replace(/"/g, "&quot;")
+
+        .replace(/'/g, "&#039;");
+
+}
 
 
-// ========================================
+// =====================================================
+// Supabaseから料理を取得
+// =====================================================
+
+async function loadFoods() {
+
+    const list =
+        document.getElementById(
+            "food-list"
+        );
+
+    list.innerHTML = `
+        <div class="empty-message">
+            <div>🍳</div>
+            <p>料理を読み込んでいます...</p>
+        </div>
+    `;
+
+
+    try {
+
+        const {
+            data: foodData,
+            error: foodError
+        } = await supabaseClient
+
+            .from("foods")
+
+            .select("*")
+
+            .order(
+                "created_at",
+                {
+                    ascending: false
+                }
+            );
+
+
+        if (foodError) {
+
+            throw foodError;
+
+        }
+
+
+        const {
+            data: likeData,
+            error: likeError
+        } = await supabaseClient
+
+            .from("likes")
+
+            .select(
+                "food_id, visitor_id"
+            );
+
+
+        if (likeError) {
+
+            throw likeError;
+
+        }
+
+
+        const {
+            data: favoriteData,
+            error: favoriteError
+        } = await supabaseClient
+
+            .from("favorites")
+
+            .select(
+                "food_id, visitor_id"
+            );
+
+
+        if (favoriteError) {
+
+            throw favoriteError;
+
+        }
+
+
+        foods =
+            (foodData || []).map(
+                function(food) {
+
+                    const likes =
+                        (likeData || []).filter(
+                            like =>
+                                like.food_id
+                                ===
+                                food.id
+                        );
+
+
+                    const liked =
+                        likes.some(
+                            like =>
+                                like.visitor_id
+                                ===
+                                visitorId
+                        );
+
+
+                    const favorite =
+                        favoriteIds.includes(
+                            food.id
+                        );
+
+
+                    return {
+
+                        ...food,
+
+                        likes:
+                            likes.length,
+
+                        liked:
+
+                            liked,
+
+                        favorite:
+
+                            favorite
+
+                    };
+
+                }
+            );
+
+
+        displayFoods();
+
+
+    }
+
+    catch (error) {
+
+        console.error(error);
+
+
+        list.innerHTML = `
+            <div class="empty-message">
+                <div>⚠️</div>
+                <p>
+                    データの読み込みに失敗しました。
+                </p>
+                <small>
+                    ${escapeHTML(
+                        error.message ||
+                        "Unknown error"
+                    )}
+                </small>
+            </div>
+        `;
+
+    }
+
+}
+
+
+// =====================================================
 // 投稿
-// ========================================
+// =====================================================
 
-function addFood() {
+async function addFood() {
 
     const imageInput =
-        document.getElementById("food-image");
+        document.getElementById(
+            "food-image"
+        );
 
 
     const author =
@@ -811,7 +1012,6 @@ function addFood() {
             .trim();
 
 
-
     if (!name) {
 
         alert(
@@ -834,175 +1034,255 @@ function addFood() {
     }
 
 
-
-    if (imageInput.files.length > 0) {
-
-        const file =
-            imageInput.files[0];
-
-
-        const reader =
-            new FileReader();
+    const button =
+        document.querySelector(
+            '.post-form button'
+        );
 
 
-        reader.onload =
-            function(event) {
+    button.disabled = true;
 
-                saveFood(
-                    event.target.result
+    button.textContent =
+        "投稿しています...";
+
+
+    try {
+
+        let imageUrl = "";
+
+
+        // ==========================================
+        // 画像アップロード
+        // ==========================================
+
+        if (
+            imageInput.files &&
+            imageInput.files.length > 0
+        ) {
+
+            const file =
+                imageInput.files[0];
+
+
+            if (!file.type.startsWith("image/")) {
+
+                throw new Error(
+                    "画像ファイルを選択してください。"
                 );
 
-            };
+            }
 
 
-        reader.readAsDataURL(file);
+            if (
+                file.size >
+                5 * 1024 * 1024
+            ) {
+
+                throw new Error(
+                    "画像は5MB以下にしてください。"
+                );
+
+            }
+
+
+            const extension =
+                file.name
+                    .split(".")
+                    .pop()
+                    .toLowerCase();
+
+
+            const fileName =
+                `${crypto.randomUUID()}.${extension}`;
+
+
+            const filePath =
+                `${fileName}`;
+
+
+            const {
+                error: uploadError
+            } = await supabaseClient
+
+                .storage
+
+                .from("food-images")
+
+                .upload(
+                    filePath,
+                    file,
+                    {
+                        cacheControl: "3600",
+                        upsert: false
+                    }
+                );
+
+
+            if (uploadError) {
+
+                throw uploadError;
+
+            }
+
+
+            const {
+                data: publicData
+            } =
+                supabaseClient
+
+                    .storage
+
+                    .from("food-images")
+
+                    .getPublicUrl(
+                        filePath
+                    );
+
+
+            imageUrl =
+                publicData.publicUrl;
+
+        }
+
+
+        // ==========================================
+        // 削除用トークン
+        // ==========================================
+
+        const deleteToken =
+            crypto.randomUUID();
+
+
+        // ==========================================
+        // DBへ投稿
+        // ==========================================
+
+        const {
+            data,
+            error
+        } = await supabaseClient
+
+            .from("foods")
+
+            .insert({
+
+                name:
+                    name,
+
+                author:
+                    author || "名無し",
+
+                category:
+                    category,
+
+                image_url:
+                    imageUrl,
+
+                calories:
+                    Number(calories),
+
+                protein:
+                    Number(protein) || 0,
+
+                fat:
+                    Number(fat) || 0,
+
+                carbs:
+                    Number(carbs) || 0,
+
+                price:
+                    Number(price) || 0,
+
+                ingredients:
+                    ingredients,
+
+                description:
+                    description,
+
+                delete_token:
+                    deleteToken
+
+            })
+
+            .select()
+
+            .single();
+
+
+        if (error) {
+
+            throw error;
+
+        }
+
+
+        // ==========================================
+        // 削除トークンをこのブラウザに保存
+        // ==========================================
+
+        deleteTokens[data.id] =
+            deleteToken;
+
+
+        localStorage.setItem(
+            "diet_food_delete_tokens",
+            JSON.stringify(
+                deleteTokens
+            )
+        );
+
+
+        alert(
+            "投稿しました！"
+        );
+
+
+        resetForm();
+
+
+        await loadFoods();
+
+
+        window.scrollTo({
+
+            top: 0,
+
+            behavior: "smooth"
+
+        });
 
     }
 
-    else {
+    catch (error) {
 
-        saveFood("");
+        console.error(error);
+
+
+        alert(
+            "投稿に失敗しました。\n\n" +
+            (
+                error.message ||
+                "Unknown error"
+            )
+        );
+
+    }
+
+    finally {
+
+        button.disabled = false;
+
+        button.textContent =
+            "＋ この料理を投稿する";
 
     }
 
 }
 
 
-// ========================================
-// 保存
-// ========================================
-
-function saveFood(image) {
-
-    const newFood = {
-
-        id:
-            Date.now(),
-
-        author:
-            document
-                .getElementById("author")
-                .value
-                .trim() || "名無し",
-
-        name:
-            document
-                .getElementById("food-name")
-                .value
-                .trim(),
-
-        category:
-            document
-                .getElementById("category")
-                .value,
-
-        calories:
-            Number(
-                document
-                    .getElementById("calories")
-                    .value
-            ),
-
-        protein:
-            Number(
-                document
-                    .getElementById("protein")
-                    .value
-            ) || 0,
-
-        fat:
-            Number(
-                document
-                    .getElementById("fat")
-                    .value
-            ) || 0,
-
-        carbs:
-            Number(
-                document
-                    .getElementById("carbs")
-                    .value
-            ) || 0,
-
-        price:
-            Number(
-                document
-                    .getElementById("price")
-                    .value
-            ) || 0,
-
-        ingredients:
-            document
-                .getElementById("ingredients")
-                .value
-                .trim(),
-
-        description:
-            document
-                .getElementById("description")
-                .value
-                .trim(),
-
-        image:
-            image,
-
-        favorite:
-            false,
-
-        likes:
-            0,
-
-        liked:
-            false
-
-    };
-
-
-    foods.unshift(newFood);
-
-
-    saveFoods();
-
-
-    alert(
-        "投稿しました！"
-    );
-
-
-    resetForm();
-
-
-    displayFoods();
-
-
-    window.scrollTo({
-
-        top: 0,
-
-        behavior: "smooth"
-
-    });
-
-}
-
-
-// ========================================
-// データ保存
-// ========================================
-
-function saveFoods() {
-
-    localStorage.setItem(
-        "foods",
-        JSON.stringify(foods)
-    );
-
-}
-
-
-// ========================================
+// =====================================================
 // フォームリセット
-// ========================================
+// =====================================================
 
 function resetForm() {
 
@@ -1058,54 +1338,13 @@ function resetForm() {
 }
 
 
-// ========================================
-// HTML安全化
-// ========================================
-
-function escapeHTML(text) {
-
-    if (!text) {
-
-        return "";
-
-    }
-
-
-    return String(text)
-
-        .replace(
-            /&/g,
-            "&amp;"
-        )
-
-        .replace(
-            /</g,
-            "&lt;"
-        )
-
-        .replace(
-            />/g,
-            "&gt;"
-        )
-
-        .replace(
-            /"/g,
-            "&quot;"
-        )
-
-        .replace(
-            /'/g,
-            "&#039;"
-        );
-
-}
-
-
-// ========================================
+// =====================================================
 // 食事表示
-// ========================================
+// =====================================================
 
-function displayFoods(foodArray = foods) {
+function displayFoods(
+    foodArray = foods
+) {
 
     const list =
         document.getElementById(
@@ -1139,194 +1378,511 @@ function displayFoods(foodArray = foods) {
     }
 
 
+    foodArray.forEach(
+        function(food) {
 
-    foodArray.forEach(function(food) {
-
-        const card =
-            document.createElement("div");
-
-
-        card.className =
-            "food-card";
+            const card =
+                document.createElement(
+                    "div"
+                );
 
 
-        card.onclick =
-            function() {
-
-                showFoodDetail(food);
-
-            };
+            card.className =
+                "food-card";
 
 
+            card.onclick =
+                function() {
 
-        let imageHTML = "";
+                    showFoodDetail(
+                        food
+                    );
+
+                };
 
 
-        if (food.image) {
+            let imageHTML = "";
 
-            imageHTML = `
 
-                <img
-                    src="${food.image}"
-                    class="food-image"
-                    alt="${escapeHTML(food.name)}">
+            if (food.image_url) {
 
-            `;
+                imageHTML = `
 
-        }
+                    <img
+                        src="${escapeHTML(food.image_url)}"
+                        class="food-image"
+                        alt="${escapeHTML(food.name)}">
 
-        else {
+                `;
 
-            imageHTML = `
+            }
 
-                <div class="no-image">
+            else {
 
-                    🍽️
+                imageHTML = `
+
+                    <div class="no-image">
+
+                        🍽️
+
+                    </div>
+
+                `;
+
+            }
+
+
+            const safeAuthor =
+                escapeHTML(
+                    food.author ||
+                    "名無し"
+                );
+
+
+            const safeName =
+                escapeHTML(
+                    food.name
+                );
+
+
+            card.innerHTML = `
+
+                ${imageHTML}
+
+
+                <div class="card-category">
+
+                    ${escapeHTML(
+                        food.category ||
+                        "その他"
+                    )}
+
+                </div>
+
+
+                <h3>
+
+                    ${safeName}
+
+                </h3>
+
+
+                <button
+                    class="author-link"
+                    data-author="${safeAuthor}">
+
+                    👤 ${safeAuthor}
+
+                </button>
+
+
+                <div class="info">
+
+                    <span>
+                        🔥 ${food.calories} kcal
+                    </span>
+
+                    <span>
+                        💪 P ${food.protein}g
+                    </span>
+
+                    <span>
+                        🥑 F ${food.fat}g
+                    </span>
+
+                    <span>
+                        🍚 C ${food.carbs}g
+                    </span>
+
+                    <span>
+                        💰 ${food.price}円
+                    </span>
+
+                </div>
+
+
+                <div class="card-bottom">
+
+                    <button
+                        class="like-button ${
+                            food.liked
+                            ? "liked"
+                            : ""
+                        }">
+
+                        ${
+                            food.liked
+                            ? "❤️"
+                            : "♡"
+                        }
+
+                        ${food.likes || 0}
+
+                    </button>
+
+
+                    <button
+                        class="favorite-button">
+
+                        ${
+                            food.favorite
+                            ? "⭐"
+                            : "☆"
+                        }
+
+                    </button>
+
+
+                    <button
+                        class="delete-button">
+
+                        🗑️
+
+                    </button>
 
                 </div>
 
             `;
 
-        }
+
+            // ======================================
+            // 投稿者
+            // ======================================
+
+            const authorButton =
+                card.querySelector(
+                    ".author-link"
+                );
 
 
+            authorButton.onclick =
+                function(event) {
 
-        card.innerHTML = `
-
-            ${imageHTML}
-
-
-            <div class="card-category">
-
-                ${escapeHTML(
-                    food.category || "その他"
-                )}
-
-            </div>
-
-
-            <h3>
-
-                ${escapeHTML(food.name)}
-
-            </h3>
-
-
-            <button
-                class="author-link"
-                onclick="
                     event.stopPropagation();
-                    showAuthorPage('${escapeHTML(
-                        food.author || "名無し"
-                    )}');
-                ">
 
-                👤 ${escapeHTML(
-                    food.author || "名無し"
-                )}
+                    showAuthorPage(
+                        food.author ||
+                        "名無し"
+                    );
 
-            </button>
+                };
 
 
-            <div class="info">
+            // ======================================
+            // いいね
+            // ======================================
 
-                <span>
-                    🔥 ${food.calories} kcal
-                </span>
-
-                <span>
-                    💪 P ${food.protein}g
-                </span>
-
-                <span>
-                    🥑 F ${food.fat}g
-                </span>
-
-                <span>
-                    🍚 C ${food.carbs}g
-                </span>
-
-                <span>
-                    💰 ${food.price}円
-                </span>
-
-            </div>
+            const likeButton =
+                card.querySelector(
+                    ".like-button"
+                );
 
 
-            <div class="card-bottom">
+            likeButton.onclick =
+                function(event) {
 
-                <button
-                    class="like-button ${
-                        food.liked ? "liked" : ""
-                    }"
-                    onclick="
-                        event.stopPropagation();
-                        toggleLike(${food.id});
-                    ">
+                    event.stopPropagation();
 
-                    ${
-                        food.liked
-                        ? "❤️"
-                        : "♡"
-                    }
+                    toggleLike(
+                        food.id
+                    );
 
-                    ${food.likes || 0}
-
-                </button>
+                };
 
 
-                <button
-                    class="favorite-button"
-                    onclick="
-                        event.stopPropagation();
-                        toggleFavorite(${food.id});
-                    ">
+            // ======================================
+            // お気に入り
+            // ======================================
 
-                    ${
-                        food.favorite
-                        ? "⭐"
-                        : "☆"
-                    }
-
-                </button>
+            const favoriteButton =
+                card.querySelector(
+                    ".favorite-button"
+                );
 
 
-                <button
-                    class="delete-button"
-                    onclick="
-                        event.stopPropagation();
-                        deleteFood(${food.id});
-                    ">
+            favoriteButton.onclick =
+                function(event) {
 
-                    🗑️
+                    event.stopPropagation();
 
-                </button>
+                    toggleFavorite(
+                        food.id
+                    );
 
-            </div>
-
-        `;
+                };
 
 
-        list.appendChild(card);
+            // ======================================
+            // 削除
+            // ======================================
 
-    });
+            const deleteButton =
+                card.querySelector(
+                    ".delete-button"
+                );
+
+
+            deleteButton.onclick =
+                function(event) {
+
+                    event.stopPropagation();
+
+                    deleteFood(
+                        food.id
+                    );
+
+                };
+
+
+            list.appendChild(
+                card
+            );
+
+        }
+    );
 
 }
 
 
-// ========================================
-// 削除
-// ========================================
+// =====================================================
+// いいね
+// =====================================================
 
-function deleteFood(id) {
+async function toggleLike(id) {
 
     const food =
         foods.find(
-            item => item.id === id
+            item =>
+                item.id === id
         );
 
 
     if (!food) {
+
+        return;
+
+    }
+
+
+    try {
+
+        if (food.liked) {
+
+            const {
+                error
+            } = await supabaseClient
+
+                .from("likes")
+
+                .delete()
+
+                .eq(
+                    "food_id",
+                    id
+                )
+
+                .eq(
+                    "visitor_id",
+                    visitorId
+                );
+
+
+            if (error) {
+
+                throw error;
+
+            }
+
+        }
+
+        else {
+
+            const {
+                error
+            } = await supabaseClient
+
+                .from("likes")
+
+                .insert({
+
+                    food_id:
+                        id,
+
+                    visitor_id:
+                        visitorId
+
+                });
+
+
+            if (error) {
+
+                throw error;
+
+            }
+
+        }
+
+
+        await loadFoods();
+
+    }
+
+    catch (error) {
+
+        console.error(error);
+
+        alert(
+            "いいねの更新に失敗しました。"
+        );
+
+    }
+
+}
+
+
+// =====================================================
+// お気に入り
+// =====================================================
+
+async function toggleFavorite(id) {
+
+    const food =
+        foods.find(
+            item =>
+                item.id === id
+        );
+
+
+    if (!food) {
+
+        return;
+
+    }
+
+
+    try {
+
+        if (favoriteIds.includes(id)) {
+
+            const {
+                error
+            } = await supabaseClient
+
+                .from("favorites")
+
+                .delete()
+
+                .eq(
+                    "food_id",
+                    id
+                )
+
+                .eq(
+                    "visitor_id",
+                    visitorId
+                );
+
+
+            if (error) {
+
+                throw error;
+
+            }
+
+
+            favoriteIds =
+                favoriteIds.filter(
+                    favoriteId =>
+                        favoriteId !== id
+                );
+
+        }
+
+        else {
+
+            const {
+                error
+            } = await supabaseClient
+
+                .from("favorites")
+
+                .insert({
+
+                    food_id:
+                        id,
+
+                    visitor_id:
+                        visitorId
+
+                });
+
+
+            if (error) {
+
+                throw error;
+
+            }
+
+
+            favoriteIds.push(id);
+
+        }
+
+
+        localStorage.setItem(
+            "diet_food_favorites",
+            JSON.stringify(
+                favoriteIds
+            )
+        );
+
+
+        await loadFoods();
+
+    }
+
+    catch (error) {
+
+        console.error(error);
+
+        alert(
+            "お気に入りの更新に失敗しました。"
+        );
+
+    }
+
+}
+
+
+// =====================================================
+// 削除
+// =====================================================
+
+async function deleteFood(id) {
+
+    const food =
+        foods.find(
+            item =>
+                item.id === id
+        );
+
+
+    if (!food) {
+
+        return;
+
+    }
+
+
+    const token =
+        deleteTokens[id];
+
+
+    if (!token) {
+
+        alert(
+            "この投稿を削除できる情報がこのブラウザにありません。"
+        );
 
         return;
 
@@ -1346,200 +1902,211 @@ function deleteFood(id) {
     }
 
 
-    foods =
-        foods.filter(
-            item => item.id !== id
-        );
+    try {
 
+        const {
+            data,
+            error
+        } = await supabaseClient
 
-    saveFoods();
+            .rpc(
+                "delete_food",
+                {
+                    target_id:
+                        id,
 
-
-    displayFoods();
-
-}
-
-
-// ========================================
-// お気に入り
-// ========================================
-
-function toggleFavorite(id) {
-
-    const food =
-        foods.find(
-            item => item.id === id
-        );
-
-
-    if (!food) {
-
-        return;
-
-    }
-
-
-    food.favorite =
-        !food.favorite;
-
-
-    saveFoods();
-
-
-    displayFoods();
-
-}
-
-
-// ========================================
-// いいね
-// ========================================
-
-function toggleLike(id) {
-
-    const food =
-        foods.find(
-            item => item.id === id
-        );
-
-
-    if (!food) {
-
-        return;
-
-    }
-
-
-    if (food.liked) {
-
-        food.likes =
-            Math.max(
-                0,
-                (food.likes || 0) - 1
+                    target_token:
+                        token
+                }
             );
 
-        food.liked = false;
+
+        if (error) {
+
+            throw error;
+
+        }
+
+
+        if (!data) {
+
+            alert(
+                "削除できませんでした。"
+            );
+
+            return;
+
+        }
+
+
+        delete deleteTokens[id];
+
+
+        localStorage.setItem(
+            "diet_food_delete_tokens",
+            JSON.stringify(
+                deleteTokens
+            )
+        );
+
+
+        alert(
+            "投稿を削除しました。"
+        );
+
+
+        await loadFoods();
 
     }
 
-    else {
+    catch (error) {
 
-        food.likes =
-            (food.likes || 0) + 1;
+        console.error(error);
 
-        food.liked = true;
+        alert(
+            "削除に失敗しました。\n\n" +
+            (
+                error.message ||
+                "Unknown error"
+            )
+        );
 
     }
-
-
-    saveFoods();
-
-
-    displayFoods();
 
 }
 
 
-// ========================================
+// =====================================================
 // お気に入り表示
-// ========================================
+// =====================================================
 
 function showFavorites() {
 
+    currentView =
+        "favorites";
+
+
     const favorites =
         foods.filter(
-            food => food.favorite
+            food =>
+                food.favorite
         );
 
 
-    displayFoods(favorites);
+    displayFoods(
+        favorites
+    );
 
 }
 
 
-// ========================================
+// =====================================================
 // 人気ランキング
-// ========================================
+// =====================================================
 
 function showRanking() {
 
+    currentView =
+        "ranking";
+
+
     const ranking =
-        [...foods]
-            .sort(
-                (a, b) =>
-                    (b.likes || 0)
-                    -
-                    (a.likes || 0)
-            );
+        [...foods].sort(
+            (a, b) =>
+                (b.likes || 0)
+                -
+                (a.likes || 0)
+        );
 
 
-    displayFoods(ranking);
+    displayFoods(
+        ranking
+    );
 
 }
 
 
-// ========================================
+// =====================================================
 // カテゴリー
-// ========================================
+// =====================================================
 
-function filterCategory(category) {
+function filterCategory(
+    category
+) {
 
     currentCategory =
         category;
 
+    currentView =
+        "all";
 
     applyFilters();
 
 }
 
 
-// ========================================
+// =====================================================
 // 絞り込み
-// ========================================
+// =====================================================
 
 function applyFilters() {
 
+    currentView =
+        "all";
+
+
     const calorie =
         document
-            .getElementById("calorieFilter")
+            .getElementById(
+                "calorieFilter"
+            )
             .value;
 
 
     const protein =
         document
-            .getElementById("proteinFilter")
+            .getElementById(
+                "proteinFilter"
+            )
             .value;
 
 
     const fat =
         document
-            .getElementById("fatFilter")
+            .getElementById(
+                "fatFilter"
+            )
             .value;
 
 
     const price =
         document
-            .getElementById("priceFilter")
+            .getElementById(
+                "priceFilter"
+            )
             .value;
 
 
     const keyword =
         document
-            .getElementById("searchInput")
+            .getElementById(
+                "searchInput"
+            )
             .value
             .toLowerCase()
             .trim();
-
 
 
     let results =
         [...foods];
 
 
-
     // カテゴリー
 
-    if (currentCategory !== "all") {
+    if (
+        currentCategory !==
+        "all"
+    ) {
 
         results =
             results.filter(
@@ -1552,15 +2119,19 @@ function applyFilters() {
     }
 
 
-
     // カロリー
 
-    if (calorie !== "all") {
+    if (
+        calorie !==
+        "all"
+    ) {
 
         results =
             results.filter(
                 food =>
-                    food.calories
+                    Number(
+                        food.calories
+                    )
                     <=
                     Number(calorie)
             );
@@ -1568,15 +2139,19 @@ function applyFilters() {
     }
 
 
-
     // タンパク質
 
-    if (protein !== "all") {
+    if (
+        protein !==
+        "all"
+    ) {
 
         results =
             results.filter(
                 food =>
-                    food.protein
+                    Number(
+                        food.protein
+                    )
                     >=
                     Number(protein)
             );
@@ -1584,15 +2159,19 @@ function applyFilters() {
     }
 
 
-
     // 脂質
 
-    if (fat !== "all") {
+    if (
+        fat !==
+        "all"
+    ) {
 
         results =
             results.filter(
                 food =>
-                    food.fat
+                    Number(
+                        food.fat
+                    )
                     <=
                     Number(fat)
             );
@@ -1600,21 +2179,24 @@ function applyFilters() {
     }
 
 
-
     // 価格
 
-    if (price !== "all") {
+    if (
+        price !==
+        "all"
+    ) {
 
         results =
             results.filter(
                 food =>
-                    food.price
+                    Number(
+                        food.price
+                    )
                     <=
                     Number(price)
             );
 
     }
-
 
 
     // 検索
@@ -1623,7 +2205,7 @@ function applyFilters() {
 
         results =
             results.filter(
-                food => {
+                function(food) {
 
                     const text = `
 
@@ -1650,15 +2232,16 @@ function applyFilters() {
     }
 
 
-
-    displayFoods(results);
+    displayFoods(
+        results
+    );
 
 }
 
 
-// ========================================
+// =====================================================
 // 検索
-// ========================================
+// =====================================================
 
 function searchFoods() {
 
@@ -1667,38 +2250,52 @@ function searchFoods() {
 }
 
 
-// ========================================
+// =====================================================
 // フィルターリセット
-// ========================================
+// =====================================================
 
 function clearFilters() {
 
     document
-        .getElementById("calorieFilter")
+        .getElementById(
+            "calorieFilter"
+        )
         .value = "all";
 
 
     document
-        .getElementById("proteinFilter")
+        .getElementById(
+            "proteinFilter"
+        )
         .value = "all";
 
 
     document
-        .getElementById("fatFilter")
+        .getElementById(
+            "fatFilter"
+        )
         .value = "all";
 
 
     document
-        .getElementById("priceFilter")
+        .getElementById(
+            "priceFilter"
+        )
         .value = "all";
 
 
     document
-        .getElementById("searchInput")
+        .getElementById(
+            "searchInput"
+        )
         .value = "";
 
 
     currentCategory =
+        "all";
+
+
+    currentView =
         "all";
 
 
@@ -1707,15 +2304,17 @@ function clearFilters() {
 }
 
 
-// ========================================
+// =====================================================
 // 並び替え
-// ========================================
+// =====================================================
 
 function sortFoods() {
 
     const sortType =
         document
-            .getElementById("sortSelect")
+            .getElementById(
+                "sortSelect"
+            )
             .value;
 
 
@@ -1723,99 +2322,102 @@ function sortFoods() {
         [...foods];
 
 
-    if (sortType === "new") {
+    if (
+        sortType ===
+        "new"
+    ) {
 
         sortedFoods.sort(
             (a, b) =>
-                b.id - a.id
+                new Date(
+                    b.created_at
+                )
+                -
+                new Date(
+                    a.created_at
+                )
         );
 
     }
 
 
     else if (
-        sortType
-        ===
+        sortType ===
         "calories-low"
     ) {
 
         sortedFoods.sort(
             (a, b) =>
-                a.calories
+                Number(a.calories)
                 -
-                b.calories
+                Number(b.calories)
         );
 
     }
 
 
     else if (
-        sortType
-        ===
+        sortType ===
         "calories-high"
     ) {
 
         sortedFoods.sort(
             (a, b) =>
-                b.calories
+                Number(b.calories)
                 -
-                a.calories
+                Number(a.calories)
         );
 
     }
 
 
     else if (
-        sortType
-        ===
+        sortType ===
         "price-low"
     ) {
 
         sortedFoods.sort(
             (a, b) =>
-                a.price
+                Number(a.price)
                 -
-                b.price
+                Number(b.price)
         );
 
     }
 
 
     else if (
-        sortType
-        ===
+        sortType ===
         "price-high"
     ) {
 
         sortedFoods.sort(
             (a, b) =>
-                b.price
+                Number(b.price)
                 -
-                a.price
+                Number(a.price)
         );
 
     }
 
 
     else if (
-        sortType
-        ===
+        sortType ===
         "protein-high"
     ) {
 
         sortedFoods.sort(
             (a, b) =>
-                b.protein
+                Number(b.protein)
                 -
-                a.protein
+                Number(a.protein)
         );
 
     }
 
 
     else if (
-        sortType
-        ===
+        sortType ===
         "likes-high"
     ) {
 
@@ -1836,11 +2438,18 @@ function sortFoods() {
 }
 
 
-// ========================================
+// =====================================================
 // 詳細表示
-// ========================================
+// =====================================================
 
 function showFoodDetail(food) {
+
+    if (!food) {
+
+        return;
+
+    }
+
 
     const detail =
         document.getElementById(
@@ -1860,16 +2469,15 @@ function showFoodDetail(food) {
         );
 
 
-
     let imageHTML = "";
 
 
-    if (food.image) {
+    if (food.image_url) {
 
         imageHTML = `
 
             <img
-                src="${food.image}"
+                src="${escapeHTML(food.image_url)}"
                 class="detail-image"
                 alt="${escapeHTML(food.name)}">
 
@@ -1892,7 +2500,6 @@ function showFoodDetail(food) {
     }
 
 
-
     content.innerHTML = `
 
         ${imageHTML}
@@ -1901,34 +2508,31 @@ function showFoodDetail(food) {
         <div class="detail-category">
 
             ${escapeHTML(
-                food.category || "その他"
+                food.category ||
+                "その他"
             )}
 
         </div>
 
 
         <h2>
-            ${escapeHTML(food.name)}
+            ${escapeHTML(
+                food.name
+            )}
         </h2>
 
 
         <button
             class="detail-author"
-            onclick="
-                showAuthorPage(
-                    '${escapeHTML(
-                        food.author || "名無し"
-                    )}'
-                );
-            ">
+            id="detail-author-button">
 
             👤 投稿者：
             ${escapeHTML(
-                food.author || "名無し"
+                food.author ||
+                "名無し"
             )}
 
         </button>
-
 
 
         <div class="detail-info">
@@ -1999,8 +2603,7 @@ function showFoodDetail(food) {
 
             ${
                 escapeHTML(
-                    food.ingredients
-                    ||
+                    food.ingredients ||
                     "材料の情報はありません。"
                 )
                 .replace(
@@ -2022,8 +2625,7 @@ function showFoodDetail(food) {
 
             ${
                 escapeHTML(
-                    food.description
-                    ||
+                    food.description ||
                     "説明はありません。"
                 )
                 .replace(
@@ -2034,8 +2636,22 @@ function showFoodDetail(food) {
 
         </div>
 
-
     `;
+
+
+    document
+        .getElementById(
+            "detail-author-button"
+        )
+        .onclick =
+        function() {
+
+            showAuthorPage(
+                food.author ||
+                "名無し"
+            );
+
+        };
 
 
     overlay.style.display =
@@ -2048,9 +2664,9 @@ function showFoodDetail(food) {
 }
 
 
-// ========================================
+// =====================================================
 // 詳細を閉じる
-// ========================================
+// =====================================================
 
 function closeFoodDetail() {
 
@@ -2058,23 +2674,27 @@ function closeFoodDetail() {
         .getElementById(
             "detail-overlay"
         )
-        .style.display = "none";
+        .style.display =
+        "none";
 
 
     document
         .getElementById(
             "food-detail"
         )
-        .style.display = "none";
+        .style.display =
+        "none";
 
 }
 
 
-// ========================================
+// =====================================================
 // 投稿者ページ
-// ========================================
+// =====================================================
 
-function showAuthorPage(author) {
+function showAuthorPage(
+    author
+) {
 
     closeFoodDetail();
 
@@ -2082,7 +2702,10 @@ function showAuthorPage(author) {
     const authorFoods =
         foods.filter(
             food =>
-                (food.author || "名無し")
+                (
+                    food.author ||
+                    "名無し"
+                )
                 ===
                 author
         );
@@ -2106,15 +2729,19 @@ function showAuthorPage(author) {
         );
 
 
-
     const totalLikes =
         authorFoods.reduce(
-            (sum, food) =>
+            (
+                sum,
+                food
+            ) =>
                 sum +
-                (food.likes || 0),
+                (
+                    food.likes ||
+                    0
+                ),
             0
         );
-
 
 
     content.innerHTML = `
@@ -2151,7 +2778,6 @@ function showAuthorPage(author) {
             class="author-food-list">
 
             ${
-
                 authorFoods.length === 0
 
                 ?
@@ -2166,25 +2792,19 @@ function showAuthorPage(author) {
 
                             <button
                                 class="author-food-item"
-                                onclick="
-                                    closeAuthorPage();
-                                    showFoodDetail(
-                                        foods.find(
-                                            f =>
-                                                f.id
-                                                ===
-                                                ${food.id}
-                                        )
-                                    );
-                                ">
+                                data-food-id="${food.id}">
 
                                 ${
-                                    food.image
+                                    food.image_url
+
                                     ?
+
                                     `<img
-                                        src="${food.image}"
+                                        src="${escapeHTML(food.image_url)}"
                                         alt="">`
+
                                     :
+
                                     `<div class="mini-no-image">
                                         🍽️
                                     </div>`
@@ -2227,6 +2847,43 @@ function showAuthorPage(author) {
     `;
 
 
+    content
+        .querySelectorAll(
+            ".author-food-item"
+        )
+        .forEach(
+            function(button) {
+
+                button.onclick =
+                    function() {
+
+                        const id =
+                            Number(
+                                button.dataset
+                                    .foodId
+                            );
+
+
+                        const selectedFood =
+                            foods.find(
+                                food =>
+                                    food.id === id
+                            );
+
+
+                        closeAuthorPage();
+
+
+                        showFoodDetail(
+                            selectedFood
+                        );
+
+                    };
+
+            }
+        );
+
+
     overlay.style.display =
         "block";
 
@@ -2237,9 +2894,9 @@ function showAuthorPage(author) {
 }
 
 
-// ========================================
+// =====================================================
 // 投稿者ページを閉じる
-// ========================================
+// =====================================================
 
 function closeAuthorPage() {
 
@@ -2247,23 +2904,25 @@ function closeAuthorPage() {
         .getElementById(
             "author-overlay"
         )
-        .style.display = "none";
+        .style.display =
+        "none";
 
 
     document
         .getElementById(
             "author-page"
         )
-        .style.display = "none";
+        .style.display =
+        "none";
 
 }
 
 
-// ========================================
+// =====================================================
 // 初期表示
-// ========================================
+// =====================================================
 
-displayFoods();
+loadFoods();
 
 
 </script>
